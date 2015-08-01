@@ -5,31 +5,39 @@ module Crypto
 , base64ToBytes
 , xorBytes
 , xorHexes
+, bytesToString
 ) where
 
 import Data.Word
 import Data.List
 import Data.Char
 import Data.Bits
+import Data.Traversable
+import Control.Monad hiding (sequence)
+import Control.Applicative
+import Prelude hiding (sequence)
 
 hexChars = "0123456789ABCDEF"
 base64Chars = ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9'] ++ ['+', '/']
 
 
+hexToBytes :: String -> Maybe [Word8]
 {- Converts a hex string into a byte array -}
-hexToBytes :: String -> [Word8]
-hexToBytes hexes = hexToBytes' (map toUpper hexes) 0
 
-hexToBytes' (char1 : char2 : xs) pos = case (maybeByte1, maybeByte2) of
-    (Nothing, _) -> error ("Bad input at position " ++ show pos)
-    (_, Nothing) -> error ("Bad input at position " ++ show (pos+1))
-    ((Just byte1), (Just byte2)) -> fromIntegral(byte1*16 + byte2) :: Word8 : hexToBytes' xs (pos + 2)
-    where maybeByte1 = char1 `elemIndex` hexChars
-          maybeByte2 = char2 `elemIndex` hexChars
-hexToBytes' (char1 : []) pos = error "Input of odd length"
-hexToBytes' [] pos = []
+hexToBytes hexes = hexToBytes' (map toUpper hexes)
+hexToBytes' (char1 : char2 : xs) = do
+    tail <- hexToBytes' xs
+    byte1 <- char1 `elemIndex` hexChars
+    byte2 <- char2 `elemIndex` hexChars
+    return ((fromIntegral(byte1*16 + byte2) :: Word8) : tail)
+hexToBytes' [_] = Nothing
+hexToBytes' [] = Just []
 
+singleHexToBytes :: [Char] -> Maybe [Int]
+singleHexToBytes = traverse (\c -> c `elemIndex` hexChars)
+        
 
+{-
 {- Converts a byte array into a hex string -}
 bytesToHex :: [Word8] -> String
 bytesToHex (byte : bytes) = encode upperBits : encode lowerBits : bytesToHex bytes
@@ -37,7 +45,17 @@ bytesToHex (byte : bytes) = encode upperBits : encode lowerBits : bytesToHex byt
           upperBits = byte `shiftR` 4
           lowerBits = byte .&. 0x0F
 bytesToHex [] = []
+-}
 
+{- Converts a byte array into a hex string -}
+bytesToHex :: [Word8] -> String
+bytesToHex (byte : bytes) = 
+    let upperBits = byte `shiftR` 4
+        lowerBits = byte .&. 0x0F
+        encode ord = hexChars !! fromIntegral(ord)
+    in encode upperBits : encode lowerBits : bytesToHex bytes
+    
+bytesToHex [] = []
 
 {- Encodes a byte array with base64 encoding -}
 bytesToBase64 :: [Word8] -> String
@@ -63,54 +81,43 @@ bytesToBase64' byte1 byte2 byte3 = (char1, char2, char3, char4)
     char3 = encode(((byte2 .&. 0x0F) `shiftL` 2) + byte3 `shiftR` 6)
     char4 = encode(byte3 .&. 0x3F)
 
+
 {- Decodes a base64 encoded string back into a byte array -}
-base64ToBytes :: String -> [Word8]
-base64ToBytes chars = base64ToBytes' chars 0
+base64ToBytes :: String -> Maybe [Word8]
 
-base64ToBytes' :: String -> Int -> [Word8]
-base64ToBytes' [] _ = []
-base64ToBytes' [char1, char2, '=', '='] pos = [byte1]
-  where (byte1, _, _) = base64ToBytes'' char1 char2 'A' 'A' pos
+base64ToBytes [] = Just []
+base64ToBytes [char1, char2, '=', '='] = do
+    (byte1, _, _) <- base64ToBytes' char1 char2 'A' 'A'
+    return [byte1]
   
-base64ToBytes' [char1, char2, char3, '='] pos = [byte1, byte2]
-  where (byte1, byte2, _) = base64ToBytes'' char1 char2 char3 'A' pos
+base64ToBytes [char1, char2, char3, '='] = do
+    (byte1, byte2, _) <- base64ToBytes' char1 char2 char3 'A'
+    return [byte1, byte2]
   
-base64ToBytes' (char1 : char2 : char3 : char4 : chars) pos = byte1 : byte2 : byte3 : base64ToBytes' chars (pos+4)
-  where (byte1, byte2, byte3) = base64ToBytes'' char1 char2 char3 char4 pos
+base64ToBytes (char1 : char2 : char3 : char4 : chars) = do
+    (byte1, byte2, byte3) <- base64ToBytes' char1 char2 char3 char4
+    tail <- base64ToBytes chars
+    return (byte1 : byte2 : byte3 : tail)
   
-base64ToBytes' chars pos = error ("Bad length of input" ++ (show chars))
+base64ToBytes chars = Nothing
   
-base64ToBytes'' :: Char -> Char -> Char -> Char -> Int -> (Word8, Word8, Word8)
-base64ToBytes'' char1 char2 char3 char4 pos = (byte1, byte2, byte3)
-  where
-    decode a pos = case (a `elemIndex` base64Chars) of
-      Nothing -> error ("Bad input at position " ++ (show pos) ++ ": " ++ [a])
-      Just byte -> fromIntegral(byte)
-    bits1 = decode char1 pos
-    bits2 = decode char2 (pos + 1)
-    bits3 = decode char3 (pos + 2)
-    bits4 = decode char4 (pos + 3)
-    byte1 = (bits1 `shiftL` 2) + (bits2 `shiftR` 4)
-    byte2 = ((bits2 .&. 0x0F) `shiftL` 4) + (bits3 `shiftR` 2)
-    byte3 = ((bits3 .&. 0x03) `shiftL` 6) + bits4
+base64ToBytes' :: Char -> Char -> Char -> Char -> Maybe (Word8, Word8, Word8)
+base64ToBytes' char1 char2 char3 char4 = do
+    let decode a = fmap fromIntegral (a `elemIndex` base64Chars)
+    [bits1, bits2, bits3, bits4] <- (sequence . map decode) [char1, char2, char3, char4]
+    let byte1 = (bits1 `shiftL` 2) + (bits2 `shiftR` 4)
+        byte2 = ((bits2 .&. 0x0F) `shiftL` 4) + (bits3 `shiftR` 2)
+        byte3 = ((bits3 .&. 0x03) `shiftL` 6) + bits4
+    return (byte1, byte2, byte3)
+
+xorHexes :: [Char] -> [Char] -> Maybe [Char]
+xorHexes hex1 hex2 = do
+    bytes1 <- hexToBytes hex1
+    bytes2 <- hexToBytes hex2
+    return ((bytesToHex . xorBytes bytes1) bytes2)
 
 
+xorBytes = zipWith xor
 
-xorHexes :: String -> String -> String
-xorHexes hexes1 hexes2 = xorHexes' 0 (map toUpper hexes1) (map toUpper hexes2)
-xorHexes' pos (hex1:hexes1) (hex2:hexes2) = case (maybeOrd1, maybeOrd2) of 
-    (Nothing, _) -> error ("Bad first input at position " ++ show pos)
-    (_, Nothing) -> error ("Bad second input at position " ++ show pos)
-    ((Just ord1), (Just ord2)) -> hexChars !! (ord1 `xor` ord2) : xorHexes' (pos+1) hexes1 hexes2
-    where
-        maybeOrd1 = hex1 `elemIndex` hexChars
-        maybeOrd2 = hex2 `elemIndex` hexChars
-xorHexes' _ [] [] = []
-xorHexes' _ [] (hex:hexes2) = error "Unequal lengths"
-xorHexes' _ (hex:hexes1) [] = error "Unequal lengths"
-
-xorBytes :: [Word8] -> [Word8] -> [Word8]
-xorBytes [] [] = []
-xorBytes [] _ = error "Unequal lengths"
-xorBytes _ [] = error "Unequal lengths"
-xorBytes (byte1:bytes1) (byte2:bytes2) = byte1 `xor` byte2 : xorBytes bytes1 bytes2
+bytesToString :: Monad m => m Integer -> m Char
+bytesToString = liftM (chr . fromIntegral)  
