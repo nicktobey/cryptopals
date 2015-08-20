@@ -12,4 +12,6 @@ main = do
             return (buffer1, buffer2)
         [buffer1] -> error "Expected 2 inputs, received 1"
         buffer1 : buffer2 : xs -> return (buffer1, buffer2)
-    putStrLn (xorHexes buffer1 buffer2)
+    putStrLn (case (xorHexes buffer1 buffer2) of
+        Just x -> x
+        Nothing -> error "Bad Input")

@@ -8,4 +8,6 @@ main = do
             putStrLn "Enter the hex string to encode: "
             getLine
         (x : xs) -> return x
-    putStrLn (bytesToBase64(hexToBytes hexInput))
+    putStrLn (case (hexToBytes hexInput) of
+        Nothing -> "Error: Bad Input"
+        Just x -> bytesToBase64 x)

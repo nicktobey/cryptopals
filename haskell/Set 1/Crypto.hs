@@ -5,7 +5,6 @@ module Crypto
 , base64ToBytes
 , xorBytes
 , xorHexes
-, bytesToString
 ) where
 
 import Data.Word
@@ -16,6 +15,8 @@ import Data.Traversable
 import Control.Monad hiding (sequence)
 import Control.Applicative
 import Prelude hiding (sequence)
+
+import Utilities
 
 hexChars = "0123456789ABCDEF"
 base64Chars = ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9'] ++ ['+', '/']
@@ -33,19 +34,6 @@ hexToBytes' (char1 : char2 : xs) = do
 hexToBytes' [_] = Nothing
 hexToBytes' [] = Just []
 
-singleHexToBytes :: [Char] -> Maybe [Int]
-singleHexToBytes = traverse (\c -> c `elemIndex` hexChars)
-        
-
-{-
-{- Converts a byte array into a hex string -}
-bytesToHex :: [Word8] -> String
-bytesToHex (byte : bytes) = encode upperBits : encode lowerBits : bytesToHex bytes
-    where encode ord = hexChars !! fromIntegral(ord)
-          upperBits = byte `shiftR` 4
-          lowerBits = byte .&. 0x0F
-bytesToHex [] = []
--}
 
 {- Converts a byte array into a hex string -}
 bytesToHex :: [Word8] -> String
@@ -110,6 +98,7 @@ base64ToBytes' char1 char2 char3 char4 = do
         byte3 = ((bits3 .&. 0x03) `shiftL` 6) + bits4
     return (byte1, byte2, byte3)
 
+
 xorHexes :: [Char] -> [Char] -> Maybe [Char]
 xorHexes hex1 hex2 = do
     bytes1 <- hexToBytes hex1
@@ -118,6 +107,3 @@ xorHexes hex1 hex2 = do
 
 
 xorBytes = zipWith xor
-
-bytesToString :: Monad m => m Integer -> m Char
-bytesToString = liftM (chr . fromIntegral)  
