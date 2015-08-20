@@ -1,30 +1,32 @@
 import Crypto
+import Utilities
+import FreqAnalysis
+
 import Data.Char
 import Data.List
 import Data.Word
 import Data.Bits
 import Data.Ord
+import Control.Monad
+import System.Environment
 
-isPrintable :: Char -> Bool
-isPrintable x = (ord x >= 32) && (ord x <= 126)
+keys = [minBound ..] :: [Word8]
+plaintexts inputBytes = map (flip decode inputBytes) keys
+decode key = map (xor key)
+bestPlaintext = maxBy score
 
-scoreString :: (Word8 -> Int) -> [Word8] -> Int
-scoreString scoreFunc input = sum ( map scoreFunc input )
+decodeBytes = bytesToString . bestPlaintext . plaintexts
+    
+decodeHex = liftM decodeBytes . hexToBytes
+decodeB64 = liftM decodeBytes . base64ToBytes
 
-asciiCheck :: Word8 -> Int
-asciiCheck x = if isPrintable (chr (fromIntegral x)) then 1 else 0
-
-massXor :: [Word8] -> Word8 -> [Word8]
-massXor input key = map (xor key) input
-
---map chr (maximumBy (comparing (score asciiCheck)) (map (massXor (hexToBytes input)) keys))
-
-decode input = plaintexts
-    where
-        keys = [(minBound :: Word8) ..] :: [Word8]
-        inputBytes = hexToBytes input :: [Word8]
-        key = maximumBy (comparing ((scoreString asciiCheck). (massXor inputBytes))) inputBytes :: Word8
-        plaintexts = map (map (chr . fromIntegral) . (massXor inputBytes)) inputBytes :: [String]
-        plaintextBytes = massXor inputBytes key :: [Word8]
-        plaintext = map (chr . fromIntegral) plaintextBytes :: String
-        score = scoreString asciiCheck plaintextBytes :: Int
+main = do
+    args <- getArgs
+    input <- case args of
+        [] -> do
+            putStrLn "Enter the hex string attempt to decrypt: "
+            getLine
+        (x : xs) -> return x
+    putStrLn (case (decodeHex input) of
+        Nothing -> "Error: Input must be a hex string"
+        Just x -> x)
